@@ -1,0 +1,5 @@
+# Shell scripts must keep LF endings, or bash (WSL2, Git Bash) fails on the CR.
+*.sh   text eol=lf
+mvnw   text eol=lf
+*.cmd  text eol=crlf
+

@@ -1,0 +1,166 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.playground</groupId>
+        <artifactId>java-ai-playground</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>onnx-genai</artifactId>
+    <name>ONNX Runtime GenAI via FFM + jextract</name>
+
+    <properties>
+        <!-- Where your manual downloads live. Override any of these with -Dname=value. -->
+        <tools.dir>${project.parent.basedir}/tools</tools.dir>
+        <jextract.home>${tools.dir}/jextract-25</jextract.home>
+        <genai.home>${tools.dir}/onnxruntime-genai/onnxruntime-genai-0.20.0-win-x64</genai.home>
+        <ort.home>${tools.dir}/onnxruntime/onnxruntime-win-x64-1.32.0</ort.home>
+        <model.dir>${project.parent.basedir}/models/phi3-repo/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4</model.dir>
+
+        <!-- Platform-specific names; the profiles below set them. -->
+        <jextract.cmd>${jextract.home}/bin/jextract</jextract.cmd>
+        <ort.lib>${ort.home}/lib/libonnxruntime.so</ort.lib>
+        <genai.lib>${genai.home}/lib/libonnxruntime-genai.so</genai.lib>
+
+        <!-- jextract writes the generated Java bindings here; they are compiled like normal sources. -->
+        <jextract.output>${project.build.directory}/generated-sources/jextract</jextract.output>
+        <jextract.package>playground.onnx.foreign</jextract.package>
+
+        <!-- `mvnd -pl onnx-genai compile exec:exec -Dprompt="..."` (empty = interactive) -->
+        <prompt></prompt>
+        <max.length>2048</max.length>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <profiles>
+        <profile>
+            <id>windows</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                </os>
+            </activation>
+            <properties>
+                <jextract.cmd>${jextract.home}/bin/jextract.bat</jextract.cmd>
+                <ort.lib>${ort.home}/lib/onnxruntime.dll</ort.lib>
+                <genai.lib>${genai.home}/lib/onnxruntime-genai.dll</genai.lib>
+            </properties>
+        </profile>
+    </profiles>
+
+    <build>
+        <plugins>
+            <!-- 1. Fail early, with a useful message, if a manual download is missing. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>check-native-downloads</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireFilesExist>
+                                    <message>
+Missing a native download. Expected layout (see README, "Lab 5"):
+  ${jextract.cmd}
+  ${genai.home}/include/ort_genai_c.h
+  ${genai.lib}
+  ${ort.lib}
+Override locations with -Djextract.home=... -Dgenai.home=... -Dort.home=...
+                                    </message>
+                                    <files>
+                                        <file>${jextract.cmd}</file>
+                                        <file>${genai.home}/include/ort_genai_c.h</file>
+                                        <file>${genai.lib}</file>
+                                        <file>${ort.lib}</file>
+                                    </files>
+                                </requireFilesExist>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <executions>
+                    <!-- 2. Run jextract on the C header -> Java bindings (generate-sources phase). -->
+                    <execution>
+                        <id>jextract</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${jextract.cmd}</executable>
+                            <arguments>
+                                <argument>--target-package</argument>
+                                <argument>${jextract.package}</argument>
+                                <argument>--output</argument>
+                                <argument>${jextract.output}</argument>
+                                <argument>${genai.home}/include/ort_genai_c.h</argument>
+                            </arguments>
+                            <!-- jextract prints ~70 harmless "skipping unsupported construct" warnings. -->
+                            <outputFile>${project.build.directory}/jextract.log</outputFile>
+                        </configuration>
+                    </execution>
+                    <!-- 4. `exec:exec` from the command line runs the chat. -->
+                    <execution>
+                        <id>default-cli</id>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>--enable-native-access=ALL-UNNAMED</argument>
+                                <argument>-Dstdout.encoding=UTF-8</argument>
+                                <argument>-Dort.lib=${ort.lib}</argument>
+                                <argument>-Dgenai.lib=${genai.lib}</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>playground.onnx.Chat</argument>
+                                <argument>${model.dir}</argument>
+                                <argument>--max-length=${max.length}</argument>
+                                <argument>--prompt=${prompt}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 3. Tell the compiler about the generated sources. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>add-jextract-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${jextract.output}</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

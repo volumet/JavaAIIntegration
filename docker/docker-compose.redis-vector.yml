@@ -1,0 +1,32 @@
+# Redis 8 as a vector store for the Java & AI track (RAG, Part B). Redis 8 has vector search
+# built in (FT.CREATE ... VECTOR); plain Redis 7 does not.
+#
+# Run from WSL2 (Docker Engine), in this folder:
+#   cp .env.example .env                                         # then set a real password
+#   docker compose -f docker-compose.redis-vector.yml up -d
+#   docker compose -f docker-compose.redis-vector.yml down       # add -v to also delete the vectors
+#
+# Apps reach it on localhost:6380 (mirrored networking makes that work from Windows too).
+
+# Own project name, so it never mixes with another compose project started from a folder named "docker".
+name: java-ai-vector
+
+services:
+  redis-vector:
+    image: redis:${REDIS_VECTOR_VERSION:-8}
+    container_name: redis-vector
+    ports:
+      - "${REDIS_VECTOR_PORT:-6380}:6379"
+    volumes:
+      - redis_vector_data:/data
+      - ./redis-vector.conf:/usr/local/etc/redis/redis.conf:ro
+    # The password comes from .env, so redis-vector.conf holds no secret and is committed.
+    command:
+      - redis-server
+      - /usr/local/etc/redis/redis.conf
+      - --requirepass
+      - "${REDIS_VECTOR_PASSWORD:?copy .env.example to .env and set REDIS_VECTOR_PASSWORD}"
+    restart: unless-stopped
+
+volumes:
+  redis_vector_data:
